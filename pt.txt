@@ -1,0 +1,73 @@
+import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+
+# CSV-Datei einlesen
+df = pd.read_csv('products.csv')
+
+# TF-IDF Vektorisierung der Inhaltsstoffe
+vectorizer = TfidfVectorizer()
+X = vectorizer.fit_transform(df['ingredients'])
+
+# In DataFrame umwandeln
+X_df = pd.DataFrame(X.toarray(), columns=vectorizer.get_feature_names_out())
+
+# Normalisierung der Daten
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X_df)
+
+# DataFrame mit skalierter Daten
+X_scaled_df = pd.DataFrame(X_scaled, columns=X_df.columns)
+
+
+
+# Autoencoder Modell erstellen
+def create_autoencoder(input_dim):
+    encoder = Sequential([
+        Dense(128, activation='relu', input_dim=input_dim),
+        Dense(64, activation='relu'),
+        Dense(32, activation='relu')
+    ])
+
+    decoder = Sequential([
+        Dense(64, activation='relu', input_dim=32),
+        Dense(128, activation='relu'),
+        Dense(input_dim, activation='sigmoid')
+    ])
+
+    autoencoder = Sequential([encoder, decoder])
+    autoencoder.compile(optimizer='adam', loss='mse')
+    return autoencoder
+
+# Modell initialisieren
+input_dim = X_scaled_df.shape[1]
+autoencoder = create_autoencoder(input_dim)
+
+# Modell trainieren
+autoencoder.fit(X_scaled_df, X_scaled_df, epochs=50, batch_size=256, validation_split=0.2)
+
+
+
+import numpy as np
+
+# Encoder-Modell extrahieren
+encoder = autoencoder.layers[0]
+
+# Latente Repräsentationen der Produkte
+encoded_products = encoder.predict(X_scaled_df)
+
+# Funktion zur Berechnung der Kosinus-Ähnlichkeit
+def cosine_similarity(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+# Ähnliche Produkte finden
+def find_similar_products(product_index, encoded_products, top_n=5):
+    similarities = [cosine_similarity(encoded_products[product_index], encoded_products[i]) for i in range(len(encoded_products))]
+    similar_indices = np.argsort(similarities)[::-1][1:top_n+1]
+    return df.iloc[similar_indices]
+
+# Beispiel: Ähnliche Produkte für das erste Produkt finden
+similar_products = find_similar_products(0, encoded_products)
+print(similar_products[['product_name', 'url']])
